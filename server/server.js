@@ -93,6 +93,15 @@ app.post('/api/maintenance', (req, res) => {
   res.json(r);
 });
 app.get('/api/maintenance', (req, res) => res.json(maintenanceRequests));
+app.put('/api/maintenance/:id', (req, res) => {
+  const r = maintenanceRequests.find(x => x.id === req.params.id);
+  if (!r) return res.status(404).json({ message: 'Not found' });
+  const { status } = req.body;
+  if (!['pending', 'in_progress', 'resolved'].includes(status)) return res.status(400).json({ message: 'Invalid status' });
+  r.status = status;
+  r.updatedAt = new Date().toISOString();
+  res.json(r);
+});
 
 // ─── Admin ───
 app.get('/api/admin/stats', (req, res) => {

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useParams, useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import ProductCard from '../components/ProductCard';
 import Navbar from '../components/Navbar';
-import { Search, SlidersHorizontal } from 'lucide-react';
+import { Search } from 'lucide-react';
 
 const categories = ['All', 'Furniture', 'Appliances'];
 const subcategories = {
@@ -18,17 +18,20 @@ export default function Products() {
   const [activeCategory, setActiveCategory] = useState(searchParams.get('category') || 'All');
   const [activeSub, setActiveSub] = useState('All');
   const [search, setSearch] = useState(searchParams.get('search') || '');
+  const [hasLoaded, setHasLoaded] = useState(products.length > 0);
 
+  // Fetch on mount if products aren't already loaded, and on category change
   useEffect(() => {
-    fetchProducts(activeCategory, search);
+    fetchProducts(activeCategory, search).then(() => setHasLoaded(true));
   }, [activeCategory]);
 
   const handleSearch = (e) => {
     e.preventDefault();
-    fetchProducts(activeCategory, search);
+    fetchProducts(activeCategory, search).then(() => setHasLoaded(true));
   };
 
   const filtered = activeSub === 'All' ? products : products.filter(p => p.subcategory === activeSub);
+  const showSkeleton = loading && products.length === 0;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -73,8 +76,8 @@ export default function Products() {
           </div>
         )}
 
-        {/* Products Grid */}
-        {loading ? (
+        {/* Products Grid - only show skeletons if we have no products yet */}
+        {showSkeleton ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {[...Array(8)].map((_, i) => (
               <div key={i} className="bg-white rounded-2xl overflow-hidden shadow-sm animate-pulse">
@@ -87,14 +90,14 @@ export default function Products() {
               </div>
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : filtered.length === 0 && hasLoaded ? (
           <div className="text-center py-16">
             <p className="text-gray-400 text-lg mb-4">No products found</p>
-            <button onClick={() => { setActiveCategory('All'); setSearch(''); fetchProducts('All'); }}
+            <button onClick={() => { setActiveCategory('All'); setActiveSub('All'); setSearch(''); fetchProducts('All'); }}
               className="text-primary-600 font-medium hover:underline">Clear filters</button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 fade-in">
             {filtered.map(product => (
               <ProductCard key={product.id} product={product} />
             ))}

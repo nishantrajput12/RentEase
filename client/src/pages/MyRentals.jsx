@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import Navbar from '../components/Navbar';
-import { Package, Calendar, MapPin, Wrench, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Package, Calendar, MapPin, Wrench, CheckCircle, Clock, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function MyRentals() {
@@ -10,21 +10,64 @@ export default function MyRentals() {
   const navigate = useNavigate();
   const [maintId, setMaintId] = useState(null);
   const [maintDesc, setMaintDesc] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [maintStatus, setMaintStatus] = useState({}); // orderId -> latest request status
 
   useEffect(() => {
     if (!user) { navigate('/login'); return; }
     fetchUserOrders(user.id);
+    loadMaintenanceStatus();
   }, [user]);
+
+  const loadMaintenanceStatus = async () => {
+    try {
+      const res = await fetch('/api/maintenance');
+      const requests = await res.json();
+      // Map each orderId to its latest request status
+      const map = {};
+      requests.forEach(r => {
+        if (!map[r.orderId] || new Date(r.createdAt) > new Date(map[r.orderId].createdAt)) {
+          map[r.orderId] = r;
+        }
+      });
+      setMaintStatus(map);
+    } catch (e) { /* ignore */ }
+  };
 
   const handleMaintenance = async (orderId) => {
     if (!maintDesc.trim()) { toast.error('Please describe the issue'); return; }
-    await requestMaintenance(orderId, maintDesc);
-    toast.success('Maintenance request submitted');
-    setMaintId(null);
-    setMaintDesc('');
+    setSubmitting(true);
+    try {
+      await requestMaintenance(orderId, maintDesc);
+      toast.success('Maintenance request submitted! Admin will look into it.');
+      setMaintId(null);
+      setMaintDesc('');
+      loadMaintenanceStatus(); // Refresh status
+    } catch (e) {
+      toast.error('Failed to submit request. Please try again.');
+    }
+    setSubmitting(false);
   };
 
   const statusColor = { active: 'bg-green-100 text-green-700', returned: 'bg-blue-100 text-blue-700', cancelled: 'bg-red-100 text-red-700' };
+
+  const maintStatusStyle = {
+    pending: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+    in_progress: 'bg-blue-100 text-blue-700 border-blue-200',
+    resolved: 'bg-green-100 text-green-700 border-green-200',
+  };
+
+  const maintStatusIcon = {
+    pending: Clock,
+    in_progress: Wrench,
+    resolved: CheckCircle,
+  };
+
+  const maintStatusLabels = {
+    pending: 'Pending',
+    in_progress: 'Being Fixed',
+    resolved: 'Resolved',
+  };
 
   if (!user) return null;
 
@@ -46,66 +89,89 @@ export default function MyRentals() {
           </div>
         ) : (
           <div className="space-y-6">
-            {orders.map(order => (
-              <div key={order.id} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-                <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-                  <div>
+            {orders.map(order => {
+              const MaintIcon = maintStatusIcon[maintStatus[order.id]?.status] || null;
+              return (
+                <div key={order.id} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                  <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
                     <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${statusColor[order.status] || 'bg-gray-100 text-gray-600'}`}>
                       {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
                     </span>
-                  </div>
-                  <div className="flex items-center gap-4 text-sm text-gray-500">
-                    <span className="flex items-center gap-1"><Calendar size={14} /> {new Date(order.deliveryDate).toLocaleDateString()}</span>
-                    <span className="flex items-center gap-1"><MapPin size={14} /> {order.address?.slice(0, 30)}...</span>
-                  </div>
-                </div>
-
-                {/* Items */}
-                <div className="space-y-3 mb-4">
-                  {order.items.map((item, i) => (
-                    <div key={i} className="flex items-center gap-4 bg-gray-50 rounded-xl p-3">
-                      <img src={item.image} alt={item.name} className="w-16 h-16 rounded-lg object-cover" />
-                      <div className="flex-1">
-                        <div className="font-medium text-gray-800">{item.name}</div>
-                        <div className="text-sm text-gray-500">{item.tenure} months &bull; Qty: {item.quantity}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-semibold text-primary-700">&#8377;{item.monthlyRent}/mo</div>
-                      </div>
+                    <div className="flex items-center gap-4 text-sm text-gray-500">
+                      <span className="flex items-center gap-1"><Calendar size={14} /> {new Date(order.deliveryDate).toLocaleDateString()}</span>
+                      <span className="flex items-center gap-1"><MapPin size={14} /> {order.address?.slice(0, 30)}{order.address?.length > 30 ? '...' : ''}</span>
                     </div>
-                  ))}
-                </div>
-
-                {/* Totals */}
-                <div className="flex flex-wrap justify-between items-center border-t pt-4">
-                  <div className="text-sm">
-                    <span className="text-gray-500">Monthly: </span>
-                    <span className="font-semibold">&#8377;{order.totalMonthly}</span>
-                    <span className="text-gray-500 ml-3">Deposit: </span>
-                    <span className="font-semibold">&#8377;{order.totalDeposit}</span>
                   </div>
 
-                  {order.status === 'active' && (
-                    <div>
-                      {maintId === order.id ? (
-                        <div className="flex gap-2">
-                          <input type="text" placeholder="Describe the issue..." value={maintDesc}
-                            onChange={e => setMaintDesc(e.target.value)}
-                            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-primary-400 w-48" />
-                          <button onClick={() => handleMaintenance(order.id)} className="bg-primary-600 text-white text-sm px-3 py-1.5 rounded-lg">Submit</button>
-                          <button onClick={() => setMaintId(null)} className="text-gray-400 text-sm px-2">Cancel</button>
+                  {/* Items */}
+                  <div className="space-y-3 mb-4">
+                    {order.items.map((item, i) => (
+                      <div key={i} className="flex items-center gap-4 bg-gray-50 rounded-xl p-3">
+                        <img src={item.image} alt={item.name} className="w-16 h-16 rounded-lg object-cover" />
+                        <div className="flex-1">
+                          <div className="font-medium text-gray-800">{item.name}</div>
+                          <div className="text-sm text-gray-500">{item.tenure} months &bull; Qty: {item.quantity}</div>
                         </div>
-                      ) : (
-                        <button onClick={() => setMaintId(order.id)}
-                          className="flex items-center gap-1.5 text-sm text-orange-600 hover:text-orange-700 font-medium">
-                          <Wrench size={14} /> Request Maintenance
-                        </button>
-                      )}
+                        <div className="text-right">
+                          <div className="font-semibold text-primary-700">&#8377;{item.monthlyRent}/mo</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Totals + Maintenance */}
+                  <div className="border-t pt-4 space-y-3">
+                    <div className="flex flex-wrap justify-between items-center">
+                      <div className="text-sm">
+                        <span className="text-gray-500">Monthly: </span>
+                        <span className="font-semibold">&#8377;{order.totalMonthly}</span>
+                        <span className="text-gray-500 ml-3">Deposit: </span>
+                        <span className="font-semibold">&#8377;{order.totalDeposit}</span>
+                      </div>
                     </div>
-                  )}
+
+                    {/* Maintenance status banner */}
+                    {maintStatus[order.id] && order.status === 'active' && (
+                      <div className={`flex items-center justify-between px-4 py-2.5 rounded-lg border ${maintStatusStyle[maintStatus[order.id].status] || 'bg-gray-50 border-gray-200 text-gray-600'}`}>
+                        <div className="flex items-center gap-2">
+                          {MaintIcon && <MaintIcon size={14} />}
+                          <span className="text-sm font-medium">
+                            Maintenance: {maintStatusLabels[maintStatus[order.id].status] || maintStatus[order.id].status}
+                          </span>
+                          <span className="text-xs opacity-70">— {maintStatus[order.id].description}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Maintenance request form */}
+                    {order.status === 'active' && (
+                      <div>
+                        {maintId === order.id ? (
+                          <div className="flex flex-wrap gap-2 items-center">
+                            <input type="text" placeholder="Describe the issue (e.g., AC not cooling)..."
+                              value={maintDesc} onChange={e => setMaintDesc(e.target.value)}
+                              className="border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary-400 flex-1 min-w-48"
+                              onKeyDown={e => e.key === 'Enter' && handleMaintenance(order.id)} />
+                            <button onClick={() => handleMaintenance(order.id)} disabled={submitting}
+                              className="bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm px-4 py-2 rounded-lg flex items-center gap-1.5">
+                              {submitting ? <Loader2 size={14} className="animate-spin" /> : <Wrench size={14} />}
+                              Submit
+                            </button>
+                            <button onClick={() => { setMaintId(null); setMaintDesc(''); }}
+                              className="text-gray-400 hover:text-gray-600 text-sm px-2">Cancel</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setMaintId(order.id)}
+                            className="flex items-center gap-1.5 text-sm text-orange-600 hover:text-orange-700 font-medium">
+                            <Wrench size={14} /> Request Maintenance
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

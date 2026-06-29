@@ -3,19 +3,35 @@ import { createContext, useContext, useState, useEffect } from 'react';
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [cart, setCart] = useState([]);
+  const [user, setUser] = useState(() => {
+    // Initialize synchronously from localStorage to avoid null-on-refresh bug
+    try {
+      const saved = localStorage.getItem('rentease_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+  const [authLoaded, setAuthLoaded] = useState(false);
+  const [cart, setCart] = useState(() => {
+    try {
+      const saved = localStorage.getItem('rentease_cart');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const API = '/api';
 
+  // Mark auth as loaded after first render
   useEffect(() => {
-    const saved = localStorage.getItem('rentease_user');
-    if (saved) setUser(JSON.parse(saved));
-    const savedCart = localStorage.getItem('rentease_cart');
-    if (savedCart) setCart(JSON.parse(savedCart));
+    setAuthLoaded(true);
+    // Pre-fetch products immediately so they are ready when user navigates
+    fetch(`${API}/products`).then(r => r.json()).then(setProducts).catch(() => {});
+    // Pre-fetch orders if user exists
+    if (user && user.role === 'user') {
+      fetch(`${API}/orders?userId=${user.id}`).then(r => r.json()).then(setOrders).catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
@@ -62,11 +78,12 @@ export function AppProvider({ children }) {
     const params = new URLSearchParams();
     if (category && category !== 'All') params.set('category', category);
     if (search) params.set('search', search);
-    const res = await fetch(`${API}/products?${params}`);
-    const data = await res.json();
-    setProducts(data);
+    try {
+      const res = await fetch(`${API}/products?${params}`);
+      const data = await res.json();
+      setProducts(data);
+    } catch (e) { /* keep existing products on error */ }
     setLoading(false);
-    return data;
   };
 
   const addToCart = (product, tenure, quantity = 1) => {
@@ -104,10 +121,11 @@ export function AppProvider({ children }) {
   };
 
   const fetchUserOrders = async (userId) => {
-    const res = await fetch(`${API}/orders?userId=${userId || user?.id}`);
-    const data = await res.json();
-    setOrders(data);
-    return data;
+    try {
+      const res = await fetch(`${API}/orders?userId=${userId || user?.id}`);
+      const data = await res.json();
+      setOrders(data);
+    } catch (e) { /* ignore */ }
   };
 
   const requestMaintenance = async (orderId, description) => {
@@ -116,6 +134,22 @@ export function AppProvider({ children }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orderId, userId: user.id, description }),
     });
+    if (!res.ok) throw new Error('Failed to submit request');
+    return res.json();
+  };
+
+  const updateMaintenanceStatus = async (requestId, status) => {
+    const res = await fetch(`${API}/maintenance/${requestId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) throw new Error('Failed to update status');
+    return res.json();
+  };
+
+  const fetchMaintenanceRequests = async () => {
+    const res = await fetch(`${API}/maintenance`);
     return res.json();
   };
 
@@ -130,18 +164,14 @@ export function AppProvider({ children }) {
     return res.json();
   };
 
-  const fetchMaintenanceRequests = async () => {
-    const res = await fetch(`${API}/maintenance`);
-    return res.json();
-  };
-
   return (
     <AppContext.Provider value={{
-      user, cart, products, orders, loading,
+      user, authLoaded, cart, products, orders, loading,
       login, register, logout,
       fetchProducts, addToCart, removeFromCart, clearCart,
       placeOrder, fetchUserOrders, requestMaintenance,
       fetchAdminOrders, fetchAdminStats, fetchMaintenanceRequests,
+      updateMaintenanceStatus,
     }}>
       {children}
     </AppContext.Provider>
