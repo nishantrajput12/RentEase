@@ -3,40 +3,31 @@ import { createContext, useContext, useState, useEffect } from 'react';
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
-  // Initialize state synchronously from localStorage to prevent flicker
   const [user, setUser] = useState(() => {
     try {
       const saved = localStorage.getItem('rentease_user');
       return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   });
-  
   const [authLoaded, setAuthLoaded] = useState(false);
-  
   const [cart, setCart] = useState(() => {
     try {
       const saved = localStorage.getItem('rentease_cart');
       return saved ? JSON.parse(saved) : [];
     } catch { return []; }
   });
-  
-  // Load orders from localStorage first, then merge with server data
   const [orders, setOrders] = useState(() => {
     try {
       const saved = localStorage.getItem('rentease_orders');
       return saved ? JSON.parse(saved) : [];
     } catch { return []; }
   });
-  
-  // Load maintenance requests from localStorage
   const [maintenanceRequests, setMaintenanceRequests] = useState(() => {
     try {
       const saved = localStorage.getItem('rentease_maintenance');
       return saved ? JSON.parse(saved) : [];
     } catch { return []; }
   });
-  
-  // Load products from localStorage first for instant display
   const [products, setProducts] = useState(() => {
     try {
       const saved = localStorage.getItem('rentease_products');
@@ -47,33 +38,20 @@ export function AppProvider({ children }) {
 
   const API = '/api';
 
-  // Mark auth as loaded and pre-fetch products
   useEffect(() => {
     setAuthLoaded(true);
-    // Pre-fetch ALL products on app load
     fetch(`${API}/products`).then(r => r.json()).then(data => {
       setProducts(data);
-      // Also store in localStorage for instant access on next visit
       localStorage.setItem('rentease_products', JSON.stringify(data));
     }).catch(() => {
-      // Try to load from localStorage if fetch fails
       const saved = localStorage.getItem('rentease_products');
       if (saved) setProducts(JSON.parse(saved));
     });
   }, []);
 
-  // Persist cart, orders, and maintenance to localStorage
-  useEffect(() => {
-    localStorage.setItem('rentease_cart', JSON.stringify(cart));
-  }, [cart]);
-
-  useEffect(() => {
-    localStorage.setItem('rentease_orders', JSON.stringify(orders));
-  }, [orders]);
-
-  useEffect(() => {
-    localStorage.setItem('rentease_maintenance', JSON.stringify(maintenanceRequests));
-  }, [maintenanceRequests]);
+  useEffect(() => { localStorage.setItem('rentease_cart', JSON.stringify(cart)); }, [cart]);
+  useEffect(() => { localStorage.setItem('rentease_orders', JSON.stringify(orders)); }, [orders]);
+  useEffect(() => { localStorage.setItem('rentease_maintenance', JSON.stringify(maintenanceRequests)); }, [maintenanceRequests]);
 
   const login = async (email, password) => {
     const res = await fetch(`${API}/auth/login`, {
@@ -85,11 +63,7 @@ export function AppProvider({ children }) {
     if (!res.ok) throw new Error(data.message);
     setUser(data.user);
     localStorage.setItem('rentease_user', JSON.stringify(data.user));
-    
-    // Fetch orders for user (merge with local)
-    if (data.user.role === 'user') {
-      fetchUserOrders(data.user.id);
-    }
+    if (data.user.role === 'user') fetchUserOrders(data.user.id);
     return data.user;
   };
 
@@ -109,7 +83,6 @@ export function AppProvider({ children }) {
   const logout = () => {
     setUser(null);
     setCart([]);
-    // Don't clear orders or maintenance - they should persist per user
     localStorage.removeItem('rentease_user');
     localStorage.removeItem('rentease_cart');
   };
@@ -123,7 +96,8 @@ export function AppProvider({ children }) {
       const res = await fetch(`${API}/products?${params}`);
       const data = await res.json();
       setProducts(data);
-    } catch (e) { /* keep existing products on error */ }
+      localStorage.setItem('rentease_products', JSON.stringify(data));
+    } catch (e) { /* keep existing */ }
     setLoading(false);
   };
 
@@ -137,7 +111,15 @@ export function AppProvider({ children }) {
             : i
         );
       }
-      return [...prev, { productId: product.id, name: product.name, image: product.image, monthlyRent: product.monthlyRent, securityDeposit: product.securityDeposit, tenure, quantity }];
+      return [...prev, {
+        productId: product.id,
+        name: product.name,
+        image: product.image,
+        monthlyRent: product.monthlyRent,
+        securityDeposit: product.securityDeposit,
+        tenure,
+        quantity
+      }];
     });
   };
 
@@ -150,82 +132,98 @@ export function AppProvider({ children }) {
   const placeOrder = async (deliveryDate, address) => {
     if (!user) throw new Error('Please login first');
     if (cart.length === 0) throw new Error('Cart is empty');
-    
-    // Create order locally first - make sure we capture all cart items
-    const orderItems = [...cart]; // Create a copy of cart items
+
+    // DEEP COPY all cart items - this is critical to prevent data loss
+    const cartSnapshot = JSON.parse(JSON.stringify(cart));
+
     const localOrder = {
       id: 'local-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
       userId: user.id,
-      items: orderItems,
+      items: cartSnapshot,
       deliveryDate,
       address,
       status: 'active',
       createdAt: new Date().toISOString(),
-      totalMonthly: orderItems.reduce((s, i) => s + i.monthlyRent * i.quantity, 0),
-      totalDeposit: orderItems.reduce((s, i) => s + i.securityDeposit * i.quantity, 0),
+      totalMonthly: cartSnapshot.reduce((s, i) => s + i.monthlyRent * i.quantity, 0),
+      totalDeposit: cartSnapshot.reduce((s, i) => s + i.securityDeposit * i.quantity, 0),
     };
-    
-    // Add to local state immediately
+
+    // Save to local state IMMEDIATELY - this persists to localStorage via useEffect
     setOrders(prev => [localOrder, ...prev]);
-    
-    // Try to save to server (but don't fail if server is down)
+
+    // Clear cart right after saving order
+    clearCart();
+
+    // Try to sync with server in background
     try {
       const res = await fetch(`${API}/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, items: orderItems, deliveryDate, address }),
+        body: JSON.stringify({
+          userId: user.id,
+          items: cartSnapshot,
+          deliveryDate,
+          address
+        }),
       });
       if (res.ok) {
         const serverOrder = await res.json();
-        // Update local order with server ID
-        setOrders(prev => prev.map(o => o.id === localOrder.id ? serverOrder : o));
+        // Only replace if server order has same or more items
+        if (serverOrder.items && serverOrder.items.length >= cartSnapshot.length) {
+          setOrders(prev => prev.map(o => o.id === localOrder.id ? serverOrder : o));
+        }
+        // If server has fewer items, keep our local version (it's more complete)
       }
     } catch (e) {
-      // Server save failed, but order is still in localStorage
-      console.warn('Failed to save order to server, but saved locally:', e);
+      console.warn('Server sync failed, order saved locally:', e);
     }
-    
-    clearCart();
+
     return localOrder;
   };
 
   const fetchUserOrders = async (userId) => {
     const targetUserId = userId || user?.id;
+
+    // Always keep local orders - they are the source of truth
+    const localOrders = orders.filter(o => o.userId === targetUserId);
+
     try {
       const res = await fetch(`${API}/orders?userId=${targetUserId}`);
       const serverOrders = await res.json();
-      
-      // Merge server orders with local orders
-      setOrders(prev => {
-        // Keep all local orders for this user
-        const localOrders = prev.filter(o => o.userId === targetUserId);
-        
-        // Create a map of server orders by ID for quick lookup
+
+      if (serverOrders.length > 0) {
+        // Merge: combine server orders with local orders
+        // For orders that exist on both, keep the one with MORE items
         const serverMap = new Map(serverOrders.map(o => [o.id, o]));
-        
-        // Merge: prefer server data, but keep local orders that aren't on server yet
         const merged = [...serverOrders];
-        
+
         localOrders.forEach(localOrder => {
-          // If local order isn't on server, add it
-          if (!serverMap.has(localOrder.id)) {
+          const serverVersion = serverMap.get(localOrder.id);
+          if (!serverVersion) {
+            // Local-only order (not yet on server) - keep it
             merged.push(localOrder);
+          } else if (localOrder.items.length > serverVersion.items.length) {
+            // Local has more items - replace server version with local
+            const idx = merged.findIndex(o => o.id === localOrder.id);
+            if (idx >= 0) merged[idx] = localOrder;
           }
+          // Otherwise server version is fine, keep it
         });
-        
-        // Sort by createdAt descending (newest first)
-        return merged.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      });
+
+        // Sort by date descending
+        merged.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        setOrders(merged);
+      }
+      // If no server orders, keep local orders as-is
     } catch (e) {
-      // If server fetch fails, keep local orders
       console.warn('Failed to fetch orders from server:', e);
+      // Keep local orders
     }
   };
 
   const requestMaintenance = async (orderId, description) => {
     if (!user) throw new Error('Please login first');
-    
-    // Create maintenance request locally first
+
     const localRequest = {
       id: 'local-maint-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
       orderId,
@@ -234,11 +232,9 @@ export function AppProvider({ children }) {
       status: 'pending',
       createdAt: new Date().toISOString(),
     };
-    
-    // Add to local state immediately
+
     setMaintenanceRequests(prev => [localRequest, ...prev]);
-    
-    // Try to save to server
+
     try {
       const res = await fetch(`${API}/maintenance`, {
         method: 'POST',
@@ -247,23 +243,20 @@ export function AppProvider({ children }) {
       });
       if (res.ok) {
         const serverRequest = await res.json();
-        // Update local request with server ID
         setMaintenanceRequests(prev => prev.map(r => r.id === localRequest.id ? serverRequest : r));
       }
     } catch (e) {
-      console.warn('Failed to save maintenance request to server:', e);
+      console.warn('Server sync failed for maintenance:', e);
     }
-    
+
     return localRequest;
   };
 
   const updateMaintenanceStatus = async (requestId, status) => {
-    // Update locally first
-    setMaintenanceRequests(prev => prev.map(r => 
+    setMaintenanceRequests(prev => prev.map(r =>
       r.id === requestId ? { ...r, status, updatedAt: new Date().toISOString() } : r
     ));
-    
-    // Try to update on server
+
     try {
       const res = await fetch(`${API}/maintenance/${requestId}`, {
         method: 'PUT',
@@ -280,38 +273,47 @@ export function AppProvider({ children }) {
   };
 
   const fetchMaintenanceRequests = async () => {
+    const localReqs = [...maintenanceRequests];
     try {
       const res = await fetch(`${API}/maintenance`);
-      const serverRequests = await res.json();
-      
-      // Merge with local requests
-      setMaintenanceRequests(prev => {
-        const localReqs = prev.filter(r => r.id.startsWith('local-'));
-        const merged = [...serverRequests, ...localReqs];
-        
-        // Remove duplicates
-        const seen = new Set();
-        return merged.filter(r => {
-          if (seen.has(r.id)) return false;
-          seen.add(r.id);
-          return true;
-        });
+      const serverReqs = await res.json();
+
+      const merged = [...serverReqs];
+      localReqs.forEach(localReq => {
+        if (!merged.find(r => r.id === localReq.id)) {
+          merged.push(localReq);
+        }
       });
-      
-      return serverRequests;
+      merged.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      setMaintenanceRequests(merged);
+      return merged;
     } catch (e) {
-      console.warn('Failed to fetch maintenance requests:', e);
-      return maintenanceRequests;
+      console.warn('Failed to fetch maintenance:', e);
+      return localReqs;
     }
   };
 
-  // Admin functions
   const fetchAdminOrders = async () => {
     try {
       const res = await fetch(`${API}/admin/orders`);
-      return await res.json();
+      const serverOrders = await res.json();
+
+      // Merge with local orders to show complete picture
+      const merged = [...serverOrders];
+      orders.forEach(localOrder => {
+        if (!merged.find(o => o.id === localOrder.id)) {
+          merged.push(localOrder);
+        } else {
+          // If local has more items, prefer it
+          const serverVersion = merged.find(o => o.id === localOrder.id);
+          if (serverVersion && localOrder.items.length > serverVersion.items.length) {
+            const idx = merged.findIndex(o => o.id === localOrder.id);
+            merged[idx] = localOrder;
+          }
+        }
+      });
+      return merged;
     } catch (e) {
-      console.warn('Failed to fetch admin orders:', e);
       return orders;
     }
   };
@@ -321,11 +323,10 @@ export function AppProvider({ children }) {
       const res = await fetch(`${API}/admin/stats`);
       return await res.json();
     } catch (e) {
-      console.warn('Failed to fetch admin stats:', e);
       return {
         totalProducts: products.length,
         activeRentals: orders.filter(o => o.status === 'active').length,
-        totalUsers: 3, // Demo users
+        totalUsers: 3,
         totalRevenue: orders.reduce((s, o) => s + o.totalMonthly, 0),
         pendingMaintenance: maintenanceRequests.filter(m => m.status === 'pending').length,
       };

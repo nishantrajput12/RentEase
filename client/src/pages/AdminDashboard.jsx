@@ -6,7 +6,7 @@ import { Package, Users, ShoppingCart, DollarSign, Wrench, TrendingUp, BarChart3
 import toast from 'react-hot-toast';
 
 export default function AdminDashboard() {
-  const { user, authLoaded, fetchAdminStats, fetchAdminOrders, maintenanceRequests, fetchMaintenanceRequests, updateMaintenanceStatus, orders } = useApp();
+  const { user, authLoaded, fetchAdminStats, fetchAdminOrders, orders, maintenanceRequests, fetchMaintenanceRequests, updateMaintenanceStatus } = useApp();
   const navigate = useNavigate();
   const [stats, setStats] = useState({});
   const [allOrders, setAllOrders] = useState([]);
@@ -15,7 +15,7 @@ export default function AdminDashboard() {
   const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
-    if (!authLoaded) return; // Wait for auth to restore from localStorage
+    if (!authLoaded) return;
     if (!user || user.role !== 'admin') {
       navigate('/');
       return;
@@ -29,7 +29,6 @@ export default function AdminDashboard() {
       const [s, o] = await Promise.all([fetchAdminStats(), fetchAdminOrders()]);
       setStats(s);
       setAllOrders(o);
-      // Fetch maintenance requests
       await fetchMaintenanceRequests();
     } catch (e) {
       toast.error('Failed to load admin data');
@@ -42,7 +41,6 @@ export default function AdminDashboard() {
     try {
       await updateMaintenanceStatus(requestId, 'resolved');
       toast.success('Marked as resolved');
-      // Refresh data
       const s = await fetchAdminStats();
       setStats(s);
     } catch (e) {
@@ -62,7 +60,6 @@ export default function AdminDashboard() {
     setUpdatingId(null);
   };
 
-  // Show nothing until auth is loaded (prevents flash redirect)
   if (!authLoaded) return null;
   if (!user || user.role !== 'admin') return null;
 
@@ -95,13 +92,11 @@ export default function AdminDashboard() {
             <h1 className="text-3xl font-bold text-gray-800">Admin Dashboard</h1>
             <p className="text-gray-500">Monitor and manage your platform</p>
           </div>
-          <button onClick={loadAdminData}
-            className="flex items-center gap-2 text-sm text-primary-600 hover:text-primary-700 font-medium">
+          <button onClick={loadAdminData} className="flex items-center gap-2 text-sm text-primary-600 hover:text-primary-700 font-medium">
             <BarChart3 size={18} /> Refresh
           </button>
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-2 mb-8 border-b border-gray-200 pb-2">
           {['overview', 'orders', 'maintenance'].map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
@@ -119,7 +114,6 @@ export default function AdminDashboard() {
           <>
             {activeTab === 'overview' && (
               <>
-                {/* Stats */}
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
                   {statCards.map(card => (
                     <div key={card.label} className="bg-white rounded-xl p-5 border border-gray-100">
@@ -132,7 +126,6 @@ export default function AdminDashboard() {
                   ))}
                 </div>
 
-                {/* Recent Orders */}
                 <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
                   <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
                     <TrendingUp size={18} className="text-primary-600" />
@@ -143,7 +136,7 @@ export default function AdminDashboard() {
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="text-left px-6 py-3 text-gray-500 font-medium">Order ID</th>
-                          <th className="text-left px-6 py-3 text-gray-500 font-medium">Items</th>
+                          <th className="text-left px-6 py-3 text-gray-500 font-medium">Products</th>
                           <th className="text-left px-6 py-3 text-gray-500 font-medium">Monthly</th>
                           <th className="text-left px-6 py-3 text-gray-500 font-medium">Status</th>
                           <th className="text-left px-6 py-3 text-gray-500 font-medium">Date</th>
@@ -155,7 +148,12 @@ export default function AdminDashboard() {
                         ) : allOrders.slice(0, 10).map(order => (
                           <tr key={order.id} className="border-t border-gray-50">
                             <td className="px-6 py-3 font-mono text-xs">{order.id.slice(0, 8)}</td>
-                            <td className="px-6 py-3">{order.items.length} item(s)</td>
+                            <td className="px-6 py-3">
+                              <div className="font-medium">{order.items.length} item(s)</div>
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                {order.items.map(i => i.name).join(', ')}
+                              </div>
+                            </td>
                             <td className="px-6 py-3 font-medium">₹{order.totalMonthly}</td>
                             <td className="px-6 py-3">
                               <span className={`text-xs px-2 py-1 rounded-full ${order.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
@@ -182,7 +180,7 @@ export default function AdminDashboard() {
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="text-left px-6 py-3 text-gray-500 font-medium">Order ID</th>
-                        <th className="text-left px-6 py-3 text-gray-500 font-medium">Items</th>
+                        <th className="text-left px-6 py-3 text-gray-500 font-medium">Products</th>
                         <th className="text-left px-6 py-3 text-gray-500 font-medium">Monthly</th>
                         <th className="text-left px-6 py-3 text-gray-500 font-medium">Deposit</th>
                         <th className="text-left px-6 py-3 text-gray-500 font-medium">Status</th>
@@ -195,7 +193,12 @@ export default function AdminDashboard() {
                       ) : allOrders.map(order => (
                         <tr key={order.id} className="border-t border-gray-50">
                           <td className="px-6 py-3 font-mono text-xs">{order.id.slice(0, 8)}</td>
-                          <td className="px-6 py-3">{order.items.map(i => i.name).join(', ')}</td>
+                          <td className="px-6 py-3">
+                            <div className="font-medium">{order.items.length} item(s)</div>
+                            <div className="text-xs text-gray-500 mt-0.5 max-w-xs">
+                              {order.items.map(i => i.name).join(', ')}
+                            </div>
+                          </td>
                           <td className="px-6 py-3 font-medium">₹{order.totalMonthly}</td>
                           <td className="px-6 py-3">₹{order.totalDeposit}</td>
                           <td className="px-6 py-3">
@@ -234,7 +237,6 @@ export default function AdminDashboard() {
                           <p className="text-xs text-gray-400 mt-1">{new Date(req.createdAt).toLocaleString()}</p>
                         </div>
 
-                        {/* Action buttons */}
                         <div className="flex gap-2 shrink-0">
                           {req.status === 'pending' && (
                             <>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import Navbar from '../components/Navbar';
-import { Package, Calendar, MapPin, Wrench, CheckCircle, Clock, Loader2, AlertTriangle, XCircle } from 'lucide-react';
+import { Package, Calendar, MapPin, Wrench, CheckCircle, Clock, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function MyRentals() {
@@ -17,16 +17,13 @@ export default function MyRentals() {
       navigate('/login'); 
       return; 
     }
-    // Fetch orders and maintenance requests
     fetchUserOrders(user.id);
     fetchMaintenanceRequests();
   }, [user]);
 
-  // Get maintenance status for a specific order
   const getOrderMaintenance = (orderId) => {
     const requests = maintenanceRequests.filter(r => r.orderId === orderId);
     if (requests.length === 0) return null;
-    // Return the most recent request
     return requests.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
   };
 
@@ -41,7 +38,6 @@ export default function MyRentals() {
       toast.success('Maintenance request submitted! Admin will review it.');
       setMaintId(null);
       setMaintDesc('');
-      // Refresh maintenance requests
       fetchMaintenanceRequests();
     } catch (e) {
       toast.error('Failed to submit request. Please try again.');
@@ -101,9 +97,14 @@ export default function MyRentals() {
                 <div key={order.id} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
                   {/* Order Header */}
                   <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-                    <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${statusColor[order.status] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                      {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${statusColor[order.status] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                        {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        {order.items.length} item{order.items.length !== 1 ? 's' : ''} in this order
+                      </span>
+                    </div>
                     <div className="flex items-center gap-4 text-sm text-gray-500">
                       <span className="flex items-center gap-1">
                         <Calendar size={14} /> 
@@ -116,7 +117,7 @@ export default function MyRentals() {
                     </div>
                   </div>
 
-                  {/* Order Items */}
+                  {/* Order Items - ALL items in this order */}
                   <div className="space-y-3 mb-4">
                     {order.items.map((item, i) => (
                       <div key={i} className="flex items-center gap-4 bg-gray-50 rounded-xl p-3">
@@ -138,14 +139,14 @@ export default function MyRentals() {
                   <div className="border-t pt-4 space-y-3">
                     <div className="flex flex-wrap justify-between items-center">
                       <div className="text-sm">
-                        <span className="text-gray-500">Monthly: </span>
+                        <span className="text-gray-500">Monthly Total: </span>
                         <span className="font-semibold text-gray-800">₹{order.totalMonthly}</span>
                         <span className="text-gray-500 ml-3">Deposit: </span>
                         <span className="font-semibold text-gray-800">₹{order.totalDeposit}</span>
                       </div>
                     </div>
 
-                    {/* Maintenance Status Banner - Show if maintenance request exists */}
+                    {/* Maintenance Status Banner */}
                     {maintRequest && (
                       <div className={`px-4 py-3 rounded-lg border ${maintStatusStyle[maintRequest.status]}`}>
                         <div className="flex items-start justify-between gap-3">
@@ -167,7 +168,7 @@ export default function MyRentals() {
                       </div>
                     )}
 
-                    {/* Maintenance Request Button/ Form */}
+                    {/* Maintenance Request Button/Form */}
                     {order.status === 'active' && (
                       <div>
                         {maintId === order.id ? (
