@@ -22,6 +22,7 @@ export default function Products() {
 
   // Fetch on mount if products aren't already loaded, and on category change
   useEffect(() => {
+    // Always fetch to ensure we have latest data
     fetchProducts(activeCategory, search).then(() => setHasLoaded(true));
   }, [activeCategory]);
 

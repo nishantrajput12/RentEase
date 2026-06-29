@@ -36,7 +36,13 @@ export function AppProvider({ children }) {
     } catch { return []; }
   });
   
-  const [products, setProducts] = useState([]);
+  // Load products from localStorage first for instant display
+  const [products, setProducts] = useState(() => {
+    try {
+      const saved = localStorage.getItem('rentease_products');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [loading, setLoading] = useState(false);
 
   const API = '/api';
@@ -44,7 +50,16 @@ export function AppProvider({ children }) {
   // Mark auth as loaded and pre-fetch products
   useEffect(() => {
     setAuthLoaded(true);
-    fetch(`${API}/products`).then(r => r.json()).then(setProducts).catch(() => {});
+    // Pre-fetch ALL products on app load
+    fetch(`${API}/products`).then(r => r.json()).then(data => {
+      setProducts(data);
+      // Also store in localStorage for instant access on next visit
+      localStorage.setItem('rentease_products', JSON.stringify(data));
+    }).catch(() => {
+      // Try to load from localStorage if fetch fails
+      const saved = localStorage.getItem('rentease_products');
+      if (saved) setProducts(JSON.parse(saved));
+    });
   }, []);
 
   // Persist cart, orders, and maintenance to localStorage
@@ -134,18 +149,20 @@ export function AppProvider({ children }) {
 
   const placeOrder = async (deliveryDate, address) => {
     if (!user) throw new Error('Please login first');
+    if (cart.length === 0) throw new Error('Cart is empty');
     
-    // Create order locally first
+    // Create order locally first - make sure we capture all cart items
+    const orderItems = [...cart]; // Create a copy of cart items
     const localOrder = {
       id: 'local-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
       userId: user.id,
-      items: cart,
+      items: orderItems,
       deliveryDate,
       address,
       status: 'active',
       createdAt: new Date().toISOString(),
-      totalMonthly: cart.reduce((s, i) => s + i.monthlyRent * i.quantity, 0),
-      totalDeposit: cart.reduce((s, i) => s + i.securityDeposit * i.quantity, 0),
+      totalMonthly: orderItems.reduce((s, i) => s + i.monthlyRent * i.quantity, 0),
+      totalDeposit: orderItems.reduce((s, i) => s + i.securityDeposit * i.quantity, 0),
     };
     
     // Add to local state immediately
@@ -156,7 +173,7 @@ export function AppProvider({ children }) {
       const res = await fetch(`${API}/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, items: cart, deliveryDate, address }),
+        body: JSON.stringify({ userId: user.id, items: orderItems, deliveryDate, address }),
       });
       if (res.ok) {
         const serverOrder = await res.json();
@@ -180,16 +197,24 @@ export function AppProvider({ children }) {
       
       // Merge server orders with local orders
       setOrders(prev => {
-        const localOrders = prev.filter(o => o.id.startsWith('local-') && o.userId === targetUserId);
-        const merged = [...serverOrders, ...localOrders];
+        // Keep all local orders for this user
+        const localOrders = prev.filter(o => o.userId === targetUserId);
         
-        // Remove duplicates (prefer server orders)
-        const seen = new Set();
-        return merged.filter(o => {
-          if (seen.has(o.id)) return false;
-          seen.add(o.id);
-          return true;
+        // Create a map of server orders by ID for quick lookup
+        const serverMap = new Map(serverOrders.map(o => [o.id, o]));
+        
+        // Merge: prefer server data, but keep local orders that aren't on server yet
+        const merged = [...serverOrders];
+        
+        localOrders.forEach(localOrder => {
+          // If local order isn't on server, add it
+          if (!serverMap.has(localOrder.id)) {
+            merged.push(localOrder);
+          }
         });
+        
+        // Sort by createdAt descending (newest first)
+        return merged.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       });
     } catch (e) {
       // If server fetch fails, keep local orders
