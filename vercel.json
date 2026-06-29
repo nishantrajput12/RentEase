@@ -19,12 +19,12 @@
       "dest": "server/server.js"
     },
     {
-      "src": "/(.*)",
-      "dest": "client/$1"
+      "src": "^/(.+)$",
+      "dest": "/$1"
     },
     {
-      "src": "/(.+)",
-      "dest": "client/index.html"
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }
