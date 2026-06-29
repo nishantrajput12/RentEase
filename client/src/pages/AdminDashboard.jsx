@@ -6,11 +6,10 @@ import { Package, Users, ShoppingCart, DollarSign, Wrench, TrendingUp, BarChart3
 import toast from 'react-hot-toast';
 
 export default function AdminDashboard() {
-  const { user, authLoaded, fetchAdminStats, fetchAdminOrders, fetchMaintenanceRequests, updateMaintenanceStatus } = useApp();
+  const { user, authLoaded, fetchAdminStats, fetchAdminOrders, maintenanceRequests, fetchMaintenanceRequests, updateMaintenanceStatus, orders } = useApp();
   const navigate = useNavigate();
   const [stats, setStats] = useState({});
-  const [orders, setOrders] = useState([]);
-  const [maintenance, setMaintenance] = useState([]);
+  const [allOrders, setAllOrders] = useState([]);
   const [activeTab, setActiveTab] = useState('overview');
   const [updatingId, setUpdatingId] = useState(null);
   const [loadingData, setLoadingData] = useState(true);
@@ -27,10 +26,11 @@ export default function AdminDashboard() {
   const loadAdminData = async () => {
     setLoadingData(true);
     try {
-      const [s, o, m] = await Promise.all([fetchAdminStats(), fetchAdminOrders(), fetchMaintenanceRequests()]);
+      const [s, o] = await Promise.all([fetchAdminStats(), fetchAdminOrders()]);
       setStats(s);
-      setOrders(o);
-      setMaintenance(m);
+      setAllOrders(o);
+      // Fetch maintenance requests
+      await fetchMaintenanceRequests();
     } catch (e) {
       toast.error('Failed to load admin data');
     }
@@ -42,10 +42,7 @@ export default function AdminDashboard() {
     try {
       await updateMaintenanceStatus(requestId, 'resolved');
       toast.success('Marked as resolved');
-      // Refresh maintenance list
-      const updated = await fetchMaintenanceRequests();
-      setMaintenance(updated);
-      // Refresh stats
+      // Refresh data
       const s = await fetchAdminStats();
       setStats(s);
     } catch (e) {
@@ -59,8 +56,6 @@ export default function AdminDashboard() {
     try {
       await updateMaintenanceStatus(requestId, 'in_progress');
       toast.success('Marked as in progress');
-      const updated = await fetchMaintenanceRequests();
-      setMaintenance(updated);
     } catch (e) {
       toast.error('Failed to update status');
     }
@@ -155,9 +150,9 @@ export default function AdminDashboard() {
                         </tr>
                       </thead>
                       <tbody>
-                        {orders.length === 0 ? (
+                        {allOrders.length === 0 ? (
                           <tr><td colSpan="5" className="text-center py-8 text-gray-400">No orders yet</td></tr>
-                        ) : orders.slice(0, 10).map(order => (
+                        ) : allOrders.slice(0, 10).map(order => (
                           <tr key={order.id} className="border-t border-gray-50">
                             <td className="px-6 py-3 font-mono text-xs">{order.id.slice(0, 8)}</td>
                             <td className="px-6 py-3">{order.items.length} item(s)</td>
@@ -180,7 +175,7 @@ export default function AdminDashboard() {
             {activeTab === 'orders' && (
               <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
                 <div className="px-6 py-4 border-b border-gray-100">
-                  <h2 className="font-semibold text-gray-800">All Orders ({orders.length})</h2>
+                  <h2 className="font-semibold text-gray-800">All Orders ({allOrders.length})</h2>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -195,9 +190,9 @@ export default function AdminDashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {orders.length === 0 ? (
+                      {allOrders.length === 0 ? (
                         <tr><td colSpan="6" className="text-center py-8 text-gray-400">No orders yet</td></tr>
-                      ) : orders.map(order => (
+                      ) : allOrders.map(order => (
                         <tr key={order.id} className="border-t border-gray-50">
                           <td className="px-6 py-3 font-mono text-xs">{order.id.slice(0, 8)}</td>
                           <td className="px-6 py-3">{order.items.map(i => i.name).join(', ')}</td>
@@ -220,13 +215,13 @@ export default function AdminDashboard() {
             {activeTab === 'maintenance' && (
               <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
                 <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                  <h2 className="font-semibold text-gray-800">Maintenance Requests ({maintenance.length})</h2>
+                  <h2 className="font-semibold text-gray-800">Maintenance Requests ({maintenanceRequests.length})</h2>
                 </div>
-                {maintenance.length === 0 ? (
+                {maintenanceRequests.length === 0 ? (
                   <div className="text-center py-12 text-gray-400">No maintenance requests</div>
                 ) : (
                   <div className="divide-y divide-gray-100">
-                    {maintenance.map(req => (
+                    {maintenanceRequests.map(req => (
                       <div key={req.id} className="px-6 py-5 flex flex-wrap items-center justify-between gap-4">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
